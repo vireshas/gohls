@@ -46,13 +46,32 @@ type Download struct {
 	totalDuration time.Duration
 }
 
-func downloadSegment(fn string, dlc chan *Download, recTime time.Duration) {
-	out, err := os.Create(fn)
-	if err != nil {
-		log.Fatal(err)
+func downloadSegment(singleFile bool, fn string, dlc chan *Download, recTime time.Duration) {
+
+	if _, err := os.Stat(fn); os.IsNotExist(err) {
+		os.Mkdir(fn, 1)
 	}
-	defer out.Close()
+
+	if strings.HasSuffix(fn, "/") {
+		fn = fn[0:len(fn)-1] 
+	}
+
 	for v := range dlc {
+
+		segments := strings.Split(v.URI, "/")
+		assetId := segments[len(segments)-1]
+		filePath := fmt.Sprintf("%s/%s", fn, assetId)
+		log.Printf("Writing to %s", filePath)
+
+		out, err := os.Create(filePath)
+		if err != nil {
+			log.Printf("File create error")
+			log.Fatal(err)
+			continue
+		}
+		defer out.Close()
+
+	    log.Printf("URI %s\n", v.URI)
 		req, err := http.NewRequest("GET", v.URI, nil)
 		if err != nil {
 			log.Fatal(err)
@@ -72,11 +91,13 @@ func downloadSegment(fn string, dlc chan *Download, recTime time.Duration) {
 		}
 		resp.Body.Close()
 		log.Printf("Downloaded %v\n", v.URI)
+
 		if recTime != 0 {
 			log.Printf("Recorded %v of %v\n", v.totalDuration, recTime)
-			} else {
-				log.Printf("Recorded %v\n", v.totalDuration)
-			}
+		} else {
+			log.Printf("Recorded %v\n", v.totalDuration)
+		}
+
 	}
 }
 
@@ -156,6 +177,7 @@ func main() {
 
 	duration := flag.Duration("t", time.Duration(0), "Recording duration (0 == infinite)")
 	useLocalTime := flag.Bool("l", false, "Use local time to track duration instead of supplied metadata")
+	singleFile := flag.Bool("s", false, "Write segments to one file or dump them in directory as individual segments")
 	flag.StringVar(&USER_AGENT, "ua", fmt.Sprintf("gohls/%v", VERSION), "User-Agent for HTTP client")
 	flag.Parse()
 
@@ -174,5 +196,5 @@ func main() {
 
 	msChan := make(chan *Download, 1024)
 	go getPlaylist(flag.Arg(0), *duration, *useLocalTime, msChan)
-	downloadSegment(flag.Arg(1), msChan, *duration)
+	downloadSegment(*singleFile, flag.Arg(1), msChan, *duration)
 }
